@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { MouseEvent as ReactMouseEvent } from "react"
 import { ArrowUpRight, Calendar, Hash, X } from "lucide-react"
 import placeholderCover from "../assets/book-placeholder.svg"
@@ -10,22 +10,66 @@ type BookDetailsModalProps = {
 }
 
 const BookDetailsModal = ({ book, onClose }: BookDetailsModalProps) => {
+	const EXIT_ANIMATION_MS = 320
+	const [isExiting, setIsExiting] = useState(false)
+	const exitTimerRef = useRef<number | null>(null)
+	const previousOverflowRef = useRef<string>("")
+
+	const initiateClose = useCallback(() => {
+		if (!book || isExiting) {
+			return
+		}
+		setIsExiting(true)
+		exitTimerRef.current = window.setTimeout(() => {
+			exitTimerRef.current = null
+			onClose()
+		}, EXIT_ANIMATION_MS)
+	}, [book, isExiting, onClose])
+
 	useEffect(() => {
 		if (!book) {
 			return
 		}
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
-				onClose()
+				initiateClose()
 			}
 		}
 		document.addEventListener("keydown", handleKeyDown)
 		return () => document.removeEventListener("keydown", handleKeyDown)
-	}, [book, onClose])
+	}, [book, initiateClose])
+
+	useEffect(() => {
+		setIsExiting(false)
+		if (exitTimerRef.current) {
+			window.clearTimeout(exitTimerRef.current)
+			exitTimerRef.current = null
+		}
+	}, [book])
+
+	useEffect(() => {
+		return () => {
+			if (exitTimerRef.current) {
+				window.clearTimeout(exitTimerRef.current)
+			}
+		}
+	}, [])
+
+	useEffect(() => {
+		if (!book) {
+			return
+		}
+		const body = document.body
+		previousOverflowRef.current = body.style.overflow
+		body.style.overflow = "hidden"
+		return () => {
+			body.style.overflow = previousOverflowRef.current
+		}
+	}, [book])
 
 	const handleBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
 		if (event.target === event.currentTarget) {
-			onClose()
+			initiateClose()
 		}
 	}
 
@@ -44,17 +88,20 @@ const BookDetailsModal = ({ book, onClose }: BookDetailsModalProps) => {
 	const languageLabel = book.language ? book.language.toUpperCase() : null
 	const infoLink = book.infoLink ?? book.previewLink ?? null
 
+	const backdropClassName = `fixed inset-0 z-50 flex items-center justify-center bg-[rgba(16,16,16,0.75)] px-4 py-8 backdrop-blur ${
+		isExiting ? "animate-backdrop-fade-out" : "animate-backdrop-fade"
+	}`
+	const modalClassName = `relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-cream shadow-lift ${
+		isExiting ? "animate-modal-exit" : "animate-modal-enter"
+	}`
+
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-rich-black/65 px-4 py-8"
-			onMouseDown={handleBackdropClick}
-			role="presentation"
-		>
-			<div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-cream shadow-lift">
+		<div className={backdropClassName} onMouseDown={handleBackdropClick} role="presentation">
+			<div onMouseDown={(event) => event.stopPropagation()} className={modalClassName}>
 				<div className="flex justify-end px-10 pt-10">
 					<button
 						type="button"
-						onClick={onClose}
+						onClick={initiateClose}
 						className="inline-flex items-center gap-2 rounded-full bg-forest px-4 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-white shadow-soft transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(44,95,79,0.4)]"
 						aria-label="Close book preview"
 					>
@@ -130,9 +177,9 @@ const BookDetailsModal = ({ book, onClose }: BookDetailsModalProps) => {
 											className="h-full w-full object-cover"
 											loading="lazy"
 											onError={(event) => {
-											if (event.currentTarget.src !== placeholderCover) {
-												event.currentTarget.src = placeholderCover
-											}
+												if (event.currentTarget.src !== placeholderCover) {
+													event.currentTarget.src = placeholderCover
+												}
 											}}
 										/>
 									</div>
