@@ -1,23 +1,41 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { countries } from "../../mockData/countries"
-import type { Author } from "../../types/Authors"
+import type { Author } from "../../types/Author"
 
 interface AddAuthorFormProps {
-	onSubmit: (author: Author) => void
+	onSubmit: (author: Author) => Promise<void> | void
 	onCancel?: () => void
+	onSuccess?: () => void
+	initialValues?: Author
+	mode?: "create" | "edit"
 }
 
-const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
-	const [formData, setFormData] = useState<Author>({
-		name: "",
-		bio: "",
-		birthYear: new Date().getFullYear(),
-		country: "",
-	})
+const AddAuthorForm = ({
+	onSubmit,
+	onCancel,
+	onSuccess,
+	initialValues,
+	mode = "create",
+}: AddAuthorFormProps) => {
+	const [formData, setFormData] = useState<Author>(
+		initialValues ?? {
+			name: "",
+			bio: "",
+			birthYear: new Date().getFullYear(),
+			country: "",
+		}
+	)
 
 	const [errors, setErrors] = useState<Partial<Record<keyof Author, string>>>(
 		{}
 	)
+	const [submissionError, setSubmissionError] = useState<string | null>(null)
+
+	useEffect(() => {
+		if (initialValues) {
+			setFormData(initialValues)
+		}
+	}, [initialValues])
 
 	const handleChange = (
 		e: React.ChangeEvent<
@@ -62,33 +80,61 @@ const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
 		return Object.keys(newErrors).length === 0
 	}
 
-	const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+	const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
 		e.preventDefault()
 
-		if (validate()) {
-			onSubmit(formData)
-			// Reset form after successful submission
-			setFormData({
-				name: "",
-				bio: "",
-				birthYear: new Date().getFullYear(),
-				country: "",
-			})
+		if (!validate()) {
+			return
+		}
+
+		try {
+			await Promise.resolve(onSubmit(formData))
+			setSubmissionError(null)
+			if (mode === "create") {
+				setFormData({
+					name: "",
+					bio: "",
+					birthYear: new Date().getFullYear(),
+					country: "",
+				})
+			}
 			setErrors({})
+			onSuccess?.()
+		} catch (error) {
+			console.error("Failed to submit author:", error)
+			setSubmissionError(
+				error instanceof Error
+					? error.message
+					: "Unable to save author. Please try again."
+			)
 		}
 	}
 
-	return (
-		<div className="bg-white rounded-lg shadow-md p-6 max-w-2xl mx-auto">
-			<h2 className="text-2xl font-bold text-gray-800 mb-6">Add New Author</h2>
+	const heading = mode === "edit" ? "Edit Author" : "Add New Author"
+	const submitLabel = mode === "edit" ? "Save Changes" : "Add Author"
 
-			<form onSubmit={handleSubmit} className="space-y-4">
+	return (
+		<section className="mx-auto max-w-2xl rounded-3xl bg-white p-10 shadow-soft">
+			<header className="mb-8 space-y-2">
+				<p className="text-xs font-semibold uppercase tracking-[0.35em] text-soft-gray">
+					Author profile
+				</p>
+				<h2 className="text-3xl font-semibold text-rich-black">{heading}</h2>
+				<p className="text-sm text-soft-gray">
+					Share a few details to help the library tell this author&#39;s story.
+				</p>
+			</header>
+
+			{submissionError && (
+				<div className="mb-6 rounded-xl border border-error-soft bg-error-soft px-4 py-3 text-sm text-error">
+					{submissionError}
+				</div>
+			)}
+
+			<form onSubmit={handleSubmit} className="space-y-6">
 				{/* Name Input */}
 				<div>
-					<label
-						htmlFor="name"
-						className="block text-sm font-medium text-gray-700 mb-1"
-					>
+					<label htmlFor="name" className="input-label">
 						Name *
 					</label>
 					<input
@@ -97,22 +143,18 @@ const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
 						name="name"
 						value={formData.name}
 						onChange={handleChange}
-						className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-							errors.name ? "border-red-500" : "border-gray-300"
-						}`}
+						className="form-field"
+						aria-invalid={errors.name ? "true" : "false"}
 						placeholder="Enter author's full name"
 					/>
 					{errors.name && (
-						<p className="mt-1 text-sm text-red-600">{errors.name}</p>
+						<p className="mt-2 text-xs font-medium text-error">{errors.name}</p>
 					)}
 				</div>
 
 				{/* Bio Input */}
 				<div>
-					<label
-						htmlFor="bio"
-						className="block text-sm font-medium text-gray-700 mb-1"
-					>
+					<label htmlFor="bio" className="input-label">
 						Biography *
 					</label>
 					<textarea
@@ -121,24 +163,20 @@ const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
 						value={formData.bio}
 						onChange={handleChange}
 						rows={4}
-						className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
-							errors.bio ? "border-red-500" : "border-gray-300"
-						}`}
+						className="form-field resize-none"
+						aria-invalid={errors.bio ? "true" : "false"}
 						placeholder="Enter a brief biography"
 					/>
 					{errors.bio && (
-						<p className="mt-1 text-sm text-red-600">{errors.bio}</p>
+						<p className="mt-2 text-xs font-medium text-error">{errors.bio}</p>
 					)}
 				</div>
 
 				{/* Birth Year and Country in a grid */}
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+				<div className="grid grid-cols-1 gap-6 md:grid-cols-2">
 					{/* Birth Year Input */}
 					<div>
-						<label
-							htmlFor="birthYear"
-							className="block text-sm font-medium text-gray-700 mb-1"
-						>
+						<label htmlFor="birthYear" className="input-label">
 							Birth Year *
 						</label>
 						<input
@@ -149,22 +187,18 @@ const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
 							onChange={handleChange}
 							min="1000"
 							max={new Date().getFullYear()}
-							className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-								errors.birthYear ? "border-red-500" : "border-gray-300"
-							}`}
+							className="form-field"
+							aria-invalid={errors.birthYear ? "true" : "false"}
 							placeholder="e.g., 1950"
 						/>
 						{errors.birthYear && (
-							<p className="mt-1 text-sm text-red-600">{errors.birthYear}</p>
+							<p className="mt-2 text-xs font-medium text-error">{errors.birthYear}</p>
 						)}
 					</div>
 
 					{/* Country Input */}
 					<div>
-						<label
-							htmlFor="country"
-							className="block text-sm font-medium text-gray-700 mb-1"
-						>
+						<label htmlFor="country" className="input-label">
 							Country *
 						</label>
 						<select
@@ -172,9 +206,8 @@ const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
 							name="country"
 							value={formData.country}
 							onChange={handleChange}
-							className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-								errors.country ? "border-red-500" : "border-gray-300"
-							}`}
+							className="form-field"
+							aria-invalid={errors.country ? "true" : "false"}
 						>
 							<option value="">Select a country</option>
 							{countries.map((country) => (
@@ -184,31 +217,31 @@ const AddAuthorForm = ({ onSubmit, onCancel }: AddAuthorFormProps) => {
 							))}
 						</select>
 						{errors.country && (
-							<p className="mt-1 text-sm text-red-600">{errors.country}</p>
+							<p className="mt-2 text-xs font-medium text-error">{errors.country}</p>
 						)}
 					</div>
 				</div>
 
 				{/* Form Actions */}
-				<div className="flex gap-3 pt-4">
+				<div className="flex flex-col gap-3 pt-6 sm:flex-row">
 					<button
 						type="submit"
-						className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+						className="btn-primary flex-1"
 					>
-						Add Author
+						{submitLabel}
 					</button>
 					{onCancel && (
 						<button
 							type="button"
 							onClick={onCancel}
-							className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+							className="btn-secondary flex-1"
 						>
 							Cancel
 						</button>
 					)}
 				</div>
 			</form>
-		</div>
+		</section>
 	)
 }
 

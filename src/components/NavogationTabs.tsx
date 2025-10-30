@@ -14,30 +14,49 @@ const NavigationTabs = ({
 	const tabs = [
 		{ id: "books", label: "Books", count: booksCount },
 		{ id: "authors", label: "Authors", count: authorsCount },
-		{ id: "add-author", label: "Add new author", count: null },
-		{ id: "add-book", label: "Add new book", count: null },
+		{ id: "add-book", label: "Add Book", count: null },
+		{ id: "add-author", label: "Add Author", count: null },
 	]
 
 	return (
-		<div className="bg-white shadow">
-			<div className="container mx-auto px-4">
-				<div className="flex gap-8">
-					{tabs.map((tab) => (
-						<button
-							key={tab.id}
-							onClick={() => setActiveTab(tab.id)}
-							className={`py-4 px-2 border-b-2 font-semibold transition-colors ${
-								activeTab === tab.id
-									? "border-indigo-600 text-indigo-600"
-									: "border-transparent text-gray-500 hover:text-gray-700"
-							}`}
-						>
-							{tab.label} {tab.count !== null && `(${tab.count})`}
-						</button>
-					))}
+		<nav className="sticky top-0 z-30 border-b border-shadow bg-cream-glass backdrop-blur">
+			<div className="mx-auto max-w-6xl px-6">
+				<div
+					role="tablist"
+					aria-label="Library sections"
+					className="flex flex-wrap items-center gap-4 text-sm font-semibold text-charcoal"
+				>
+					{tabs.map((tab) => {
+						const isActive = activeTab === tab.id
+						return (
+							<button
+								key={tab.id}
+								type="button"
+								role="tab"
+								aria-selected={isActive}
+								className={`relative pb-4 pt-5 transition-colors tab-label ${
+									isActive ? "tab-label-active" : ""
+								}`}
+								onClick={() => setActiveTab(tab.id)}
+							>
+								<span className="flex items-center gap-2 text-base">
+									{tab.label}
+									{tab.count !== null && (
+										<span className="rounded-full bg-forest-soft px-2 py-0.5 text-xs font-semibold text-forest">
+											{tab.count}
+										</span>
+									)}
+								</span>
+
+								{isActive && (
+									<span className="absolute inset-x-0 bottom-0 h-[3px] rounded-full bg-forest" aria-hidden="true" />
+								)}
+							</button>
+						)
+					})}
 				</div>
 			</div>
-		</div>
+		</nav>
 	)
 }
 

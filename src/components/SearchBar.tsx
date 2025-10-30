@@ -7,14 +7,21 @@ interface SearchBarProps {
 
 const SearchBar = ({ searchTerm, onSearchChange }: SearchBarProps) => {
 	return (
-		<div className="relative">
-			<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+		<div className="relative mx-auto w-full max-w-xl">
+			<label htmlFor="library-global-search" className="sr-only">
+				Search library
+			</label>
+			<Search
+				className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-gray"
+				aria-hidden="true"
+			/>
 			<input
-				type="text"
+				id="library-global-search"
+				type="search"
 				placeholder="Search books or authors..."
 				value={searchTerm}
-				onChange={(e) => onSearchChange(e.target.value)}
-				className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+				onChange={(event) => onSearchChange(event.target.value)}
+				className="form-field rounded-full py-3 pl-14 pr-5 text-sm font-medium"
 			/>
 		</div>
 	)

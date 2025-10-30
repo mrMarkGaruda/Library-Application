@@ -6,6 +6,9 @@ export type Book = {
 	publishedYear: number
 	description: string
 	coverUrl: string
+	thumbnail?: string
+	publishedDate?: string
+	author?: string | null
 }
 
 /*{

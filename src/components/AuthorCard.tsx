@@ -1,36 +1,75 @@
-import { User } from "lucide-react"
+import { BookOpen, Pencil, Trash2, User2 } from "lucide-react"
+import type { Author } from "../types/Author"
 
 interface AuthorCardProps {
-	author: {
-		id: number
-		name: string
-		bio: string
-		birthYear: number
-		country: string
-	}
+	author: Author
 	bookCount: number
+	onEdit?: (author: Author) => void | Promise<void>
+	onDelete?: (author: Author) => void | Promise<void>
+	onHighlightBooks?: (authorId: number) => void
 }
 
-const AuthorCard = ({ author, bookCount }: AuthorCardProps) => {
-	return (
-		<div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-300">
-			<div className="flex items-center mb-4">
-				<div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mr-4">
-					<User className="w-8 h-8 text-blue-600" />
+const AuthorCard = ({ author, bookCount, onEdit, onDelete, onHighlightBooks }: AuthorCardProps) => {
+		return (
+			<article className="card-surface card-hover flex h-full flex-col gap-6 p-6">
+				<header className="flex items-center gap-4">
+					<div className="flex h-16 w-16 items-center justify-center rounded-full bg-forest-soft text-forest">
+						<User2 className="h-7 w-7" aria-hidden="true" />
+					</div>
+					<div className="space-y-1">
+						<h3 className="text-2xl font-semibold text-rich-black">{author.name}</h3>
+						{author.birthYear ? (
+							<p className="text-xs font-medium uppercase tracking-[0.2em] text-soft-gray">
+								Born {author.birthYear}
+							</p>
+						) : null}
+					</div>
+				</header>
+
+				<p className="flex-1 text-sm leading-6 text-charcoal-strong">{author.bio}</p>
+
+				<div className="flex flex-wrap items-center justify-between gap-3 border-t border-shadow-light pt-4 text-sm font-semibold text-forest">
+					<span className="inline-flex items-center gap-2">
+						<BookOpen className="h-4 w-4" aria-hidden="true" />
+						{bookCount} {bookCount === 1 ? "book" : "books"} in library
+					</span>
+
+					{(onHighlightBooks || onEdit || onDelete) && (
+						<div className="flex flex-wrap items-center gap-2">
+							{onHighlightBooks && author.id != null && (
+								<button
+									type="button"
+									onClick={() => onHighlightBooks(author.id!)}
+									className="btn-ghost h-9 px-4 text-xs"
+								>
+									View books
+								</button>
+							)}
+							{onEdit && (
+								<button
+									type="button"
+									onClick={() => onEdit(author)}
+									className="btn-secondary h-9 px-4 text-xs"
+								>
+									<Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+									Edit author
+								</button>
+							)}
+							{onDelete && (
+								<button
+									type="button"
+									onClick={() => onDelete(author)}
+									className="btn-ghost h-9 px-4 text-xs text-error"
+								>
+									<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+									Remove
+								</button>
+							)}
+						</div>
+					)}
 				</div>
-				<div>
-					<h3 className="text-xl font-bold text-gray-800">{author.name}</h3>
-					<p className="text-sm text-gray-500">
-						{author.country} • Born {author.birthYear}
-					</p>
-				</div>
-			</div>
-			<p className="text-sm text-gray-600 mb-3">{author.bio}</p>
-			<div className="text-sm text-blue-600 font-semibold">
-				{bookCount} {bookCount === 1 ? "book" : "books"} in collection
-			</div>
-		</div>
-	)
+			</article>
+		)
 }
 
 export default AuthorCard
