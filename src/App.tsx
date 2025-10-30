@@ -360,7 +360,7 @@ toast.tone === "success"
 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-soft-gray">
 Curated collection
 </p>
-<h1 className="text-4xl font-semibold text-rich-black">Books & Authors Library</h1>
+<h1 className="text-4xl font-semibold text-rich-black">Self-Help Library</h1>
 <p className="max-w-xl text-sm text-soft-gray">
 The ultimate self-improvement reading list, carefully curated to inspire and educate.
 </p>
