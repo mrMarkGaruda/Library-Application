@@ -60,6 +60,27 @@
 	select {
 		font-family: var(--font-sans);
 	}
+
+		button,
+		input[type="button"],
+		input[type="submit"],
+		input[type="reset"],
+		[role="button"] {
+			cursor: pointer;
+		}
+
+		button:disabled,
+		input[type="button"][disabled],
+		input[type="submit"][disabled],
+		input[type="reset"][disabled],
+		[role="button"][aria-disabled="true"],
+		select:disabled {
+			cursor: not-allowed;
+		}
+
+		select {
+			cursor: pointer;
+		}
 }
 
 @layer utilities {
@@ -169,6 +190,12 @@
 
 			.bg-cream-glass {
 				background-color: rgba(250, 249, 246, 0.85);
+			}
+
+			.bg-cream-frosted {
+				background-color: rgba(250, 249, 246, 0.94);
+				backdrop-filter: blur(20px);
+				-webkit-backdrop-filter: blur(20px);
 			}
 
 			.border-success-soft {

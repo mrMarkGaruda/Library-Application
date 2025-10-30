@@ -9,7 +9,7 @@ interface NavigationTabsProps {
 
 const NavigationTabs = ({ activeTab, onTabChange, tabs, rightSlot }: NavigationTabsProps) => {
 	return (
-		<nav className="sticky top-0 z-30 border-b border-shadow bg-cream-glass/90 backdrop-blur">
+		<nav className="sticky top-0 z-30 border-b border-shadow bg-cream-frosted backdrop-blur-xl">
 			<div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
 				<div
 					role="tablist"
