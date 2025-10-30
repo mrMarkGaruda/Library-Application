@@ -3,6 +3,13 @@ import type { GoogleBookItem, GoogleBookResponse } from "../types/GoogleBook"
 
 const GOOGLE_BOOKS_API = import.meta.env.VITE_GOOGLE_BOOKS_API
 
+const sanitizeCoverUrl = (url: string | undefined): string => {
+	if (!url) {
+		return ""
+	}
+	return url.startsWith("http://") ? url.replace("http://", "https://") : url
+}
+
 const transformGoogleBook = (item: GoogleBookItem): Book => {
 	const volumeInfo = item.volumeInfo
 
@@ -23,8 +30,8 @@ const transformGoogleBook = (item: GoogleBookItem): Book => {
 			? parseInt(volumeInfo.publishedDate.substring(0, 4)) || 0
 			: 0,
 		description: volumeInfo.description || "",
-		coverUrl: volumeInfo.imageLinks?.thumbnail || "",
-		thumbnail: volumeInfo.imageLinks?.thumbnail,
+		coverUrl: sanitizeCoverUrl(volumeInfo.imageLinks?.thumbnail),
+		thumbnail: sanitizeCoverUrl(volumeInfo.imageLinks?.smallThumbnail),
 		publishedDate: volumeInfo.publishedDate,
 		author: volumeInfo.authors?.[0] || "Unknown Author",
 	}
@@ -54,5 +61,38 @@ export const searchBooksByTitle = async (title: string): Promise<Book[]> => {
 	} catch (error) {
 		console.error("Error fetching books from Google Books API:", error)
 		return []
+	}
+}
+
+export const lookupBookByIsbn = async (isbnInput: string): Promise<Book | null> => {
+	const cleanedIsbn = isbnInput.replace(/[^0-9Xx]/g, "").trim()
+	if (cleanedIsbn.length === 0) {
+		return null
+	}
+
+	try {
+		const params = new URLSearchParams({
+			q: `isbn:${cleanedIsbn}`,
+			country: "US",
+			maxResults: "1",
+		})
+
+		const response = await fetch(`${GOOGLE_BOOKS_API}?${params.toString()}`)
+
+		if (!response.ok) {
+			throw new Error(`API request failed with status ${response.status}`)
+		}
+
+		const data: GoogleBookResponse = await response.json()
+		const firstItem = data.items?.[0]
+		if (!firstItem) {
+			return null
+		}
+
+		const transformed = transformGoogleBook(firstItem)
+		return { ...transformed, isbn: cleanedIsbn }
+	} catch (error) {
+		console.error("Error fetching book by ISBN from Google Books API:", error)
+		return null
 	}
 }

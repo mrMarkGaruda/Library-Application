@@ -2,6 +2,8 @@ export type Book = {
 	id?: number
 	title: string
 	authorId: number
+	authorIds?: number[]
+	authorNames?: string[]
 	isbn: string
 	publishedYear: number
 	description: string
@@ -9,6 +11,11 @@ export type Book = {
 	thumbnail?: string
 	publishedDate?: string
 	author?: string | null
+	categories?: string[]
+	pageCount?: number
+	language?: string
+	previewLink?: string
+	infoLink?: string
 }
 
 /*{

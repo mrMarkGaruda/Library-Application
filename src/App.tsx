@@ -1,562 +1,523 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, Library, RefreshCcw, RotateCcw, Server } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { AlertCircle, BookOpen, CheckCircle2 } from "lucide-react"
 import BookCard from "./components/BookCard"
 import AuthorCard from "./components/AuthorCard"
 import SearchBar from "./components/SearchBar"
-import AddAuthorForm from "./components/tabs/AddAuthorForm"
-import type { Author } from "./types/Author"
-import AddBookForm from "./components/tabs/AddBookForm"
-import type { Book } from "./types/Book"
 import NavigationTabs from "./components/NavogationTabs"
-import ConnectionStatus from "./components/ConnectionStatus"
 import StatsRibbon from "./components/StatsRibbon"
 import BookToolbar from "./components/toolbars/BookToolbar"
 import AuthorToolbar from "./components/toolbars/AuthorToolbar"
 import BookDetailsModal from "./components/BookDetailsModal"
-import LibrarySkeleton from "./components/LibrarySkeleton"
-import {
-	libraryGateway,
-	type GatewayMeta,
-	type SnapshotResult,
-	type OperationResult,
-	type SeedSource,
-} from "./services/libraryGateway"
-
-type ConnectionState = {
-	status: "syncing" | "connected"
-	lastSynced: Date | null
-	latency: number | null
-	fallbackUsed: boolean
-}
-
-type StatusMessage = {
-	message: string
-	tone: "success" | "info"
-}
+import AddBookForm from "./components/tabs/AddBookForm"
+import AddAuthorForm from "./components/tabs/AddAuthorForm"
+import QuickIsbnAdd from "./components/forms/QuickIsbnAdd"
+import { libraryAuthors, libraryBooks } from "./data/libraryData"
+import type { Book } from "./types/Book"
+import type { Author } from "./types/Author"
 
 type BookSortOption = "recent" | "title-asc" | "title-desc" | "year-new" | "year-old"
 type BookYearFilter = "all" | "modern" | "classic"
 type AuthorSortOption = "alphabetical" | "books-desc" | "birth-new" | "birth-old"
 
+type ToastTone = "success" | "info" | "warning"
+
+type ToastMessage = {
+message: string
+tone: ToastTone
+}
+
+const sanitizeIsbn = (value: string) => value.replace(/[^0-9Xx]/g, "")
+
 const App = () => {
-	const [activeTab, setActiveTab] = useState("books")
-	const [searchTerm, setSearchTerm] = useState("")
-	const [authors, setAuthors] = useState<Author[]>([])
-	const [books, setBooks] = useState<Book[]>([])
-	const [isLoading, setIsLoading] = useState(true)
-	const [isSyncing, setIsSyncing] = useState(false)
-	const [editingAuthor, setEditingAuthor] = useState<Author | null>(null)
-	const [editingBook, setEditingBook] = useState<Book | null>(null)
-	const [status, setStatus] = useState<StatusMessage | null>(null)
-	const [connection, setConnection] = useState<ConnectionState>({
-		status: "syncing",
-		lastSynced: null,
-		latency: null,
-		fallbackUsed: false,
-	})
-	const [seedSource, setSeedSource] = useState<SeedSource>(() => libraryGateway.getSeedSource())
-	const [bookSort, setBookSort] = useState<BookSortOption>("recent")
-	const [bookAuthorFilter, setBookAuthorFilter] = useState<number | "all">("all")
-	const [bookYearFilter, setBookYearFilter] = useState<BookYearFilter>("all")
-	const [authorSort, setAuthorSort] = useState<AuthorSortOption>("alphabetical")
-	const [previewBook, setPreviewBook] = useState<Book | null>(null)
-	const hasLoadedRef = useRef(false)
+const [activeTab, setActiveTab] = useState<"books" | "authors" | "create">("books")
+const [searchTerm, setSearchTerm] = useState("")
+const [bookSort, setBookSort] = useState<BookSortOption>("recent")
+const [bookYearFilter, setBookYearFilter] = useState<BookYearFilter>("all")
+const [bookCategoryFilter, setBookCategoryFilter] = useState<string>("all")
+const [authorSort, setAuthorSort] = useState<AuthorSortOption>("alphabetical")
+const [previewBook, setPreviewBook] = useState<Book | null>(null)
+const [authors, setAuthors] = useState<Author[]>(() => libraryAuthors.map((author) => ({ ...author })))
+const [books, setBooks] = useState<Book[]>(() => libraryBooks.map((book) => ({ ...book })))
+const [toast, setToast] = useState<ToastMessage | null>(null)
 
-	const showStatus = useCallback(
-		(message: string, tone: "success" | "info" = "success") => {
-			setStatus({ message, tone })
-		},
-		[]
-	)
+const normalizedSearch = searchTerm.trim().toLowerCase()
 
-	const updateConnection = useCallback((meta: GatewayMeta) => {
-		setConnection({
-			status: "connected",
-			lastSynced: new Date(meta.timestamp),
-			latency: meta.latency,
-			fallbackUsed: meta.fallbackUsed,
-		})
-	}, [])
+const showToast = (message: string, tone: ToastTone = "success") => {
+setToast({ message, tone })
+}
 
-	const applyGatewaySnapshot = useCallback(
-		(snapshot: SnapshotResult | OperationResult<unknown>) => {
-			setAuthors(snapshot.authors)
-			setBooks(snapshot.books)
-			updateConnection(snapshot.meta)
-			setSeedSource(libraryGateway.getSeedSource())
-		},
-		[updateConnection]
-	)
+useEffect(() => {
+if (!toast) {
+return
+}
+const timeoutId = window.setTimeout(() => setToast(null), 3600)
+return () => window.clearTimeout(timeoutId)
+}, [toast])
 
-	const syncLibrary = useCallback(
-		async ({ announce = false }: { announce?: boolean } = {}) => {
-			setConnection((prev) => ({ ...prev, status: "syncing" }))
-			setIsSyncing(true)
-			if (!hasLoadedRef.current) {
-				setIsLoading(true)
+const ensureAuthorByName = (rawName: string): { author: Author; created: boolean } => {
+const normalized = (rawName ?? "Unknown author").trim() || "Unknown author"
+const existing = authors.find((author) => author.name.toLowerCase() === normalized.toLowerCase())
+if (existing) {
+return { author: existing, created: false }
+}
+
+let resolved: Author | undefined
+let created = false
+
+setAuthors((prev) => {
+const prevExisting = prev.find((author) => author.name.toLowerCase() === normalized.toLowerCase())
+if (prevExisting) {
+resolved = prevExisting
+return prev
+}
+const nextId = prev.reduce((max, author) => Math.max(max, author.id ?? 0), 0) + 1
+const nextAuthor: Author = {
+id: nextId,
+name: normalized,
+bio: "",
+birthYear: 0,
+country: "",
+}
+resolved = nextAuthor
+created = true
+return [...prev, nextAuthor]
+})
+
+return {
+author: resolved ?? {
+id: 0,
+name: normalized,
+bio: "",
+birthYear: 0,
+country: "",
+},
+created,
+}
+}
+
+const addBookToCollection = (
+incoming: Book,
+{ allowAuthorCreation = false }: { allowAuthorCreation?: boolean } = {}
+): "added" | "duplicate" => {
+const cleanedIsbn = sanitizeIsbn(incoming.isbn)
+const duplicate = cleanedIsbn
+? books.some((book) => sanitizeIsbn(book.isbn) === cleanedIsbn)
+: books.some((book) => book.title.trim().toLowerCase() === incoming.title.trim().toLowerCase())
+
+if (duplicate) {
+return "duplicate"
+}
+
+let author = incoming.authorId ? authors.find((candidate) => candidate.id === incoming.authorId) : undefined
+const candidateName = incoming.authorNames?.[0] ?? incoming.author ?? author?.name
+
+if (!author && candidateName) {
+const lowerName = candidateName.trim().toLowerCase()
+author = authors.find((candidate) => candidate.name.toLowerCase() === lowerName)
+}
+
+let createdAuthor = false
+if (!author && allowAuthorCreation && candidateName) {
+const ensured = ensureAuthorByName(candidateName)
+author = ensured.author
+createdAuthor = ensured.created
+}
+
+const authorId = author?.id ?? incoming.authorId ?? 0
+const normalizedAuthorNames =
+author
+? [author.name]
+: incoming.authorNames?.length
+? incoming.authorNames
+: candidateName
+? [candidateName]
+: undefined
+
+const sanitizedCover =
+incoming.coverUrl && incoming.coverUrl.startsWith("http://")
+? incoming.coverUrl.replace("http://", "https://")
+: incoming.coverUrl
+
+const nextBookId = books.reduce((max, book) => (book.id && book.id > max ? book.id : max), 0) + 1
+const normalizedCategories = incoming.categories?.filter((category) => category.trim().length > 0)
+
+const normalizedBook: Book = {
+...incoming,
+id: nextBookId,
+authorId,
+authorIds: authorId ? [authorId] : incoming.authorIds,
+authorNames: normalizedAuthorNames,
+author: normalizedAuthorNames?.[0] ?? incoming.author ?? null,
+isbn: cleanedIsbn || incoming.isbn,
+coverUrl: sanitizedCover,
+categories: normalizedCategories,
+}
+
+setBooks((prev) => [...prev, normalizedBook])
+
+const toastMessage =
+createdAuthor && author
+? `Added "${normalizedBook.title}" and created ${author.name}.`
+: `Added "${normalizedBook.title}" to your library.`
+showToast(toastMessage)
+
+return "added"
+}
+
+const handleManualBookSubmit = async (book: Book) => {
+const outcome = addBookToCollection(book, { allowAuthorCreation: false })
+if (outcome === "duplicate") {
+throw new Error("This ISBN is already in your library.")
+}
+}
+
+const handleQuickIsbnResolve = async (book: Book): Promise<"added" | "duplicate"> => {
+const outcome = addBookToCollection(book, { allowAuthorCreation: true })
+if (outcome === "duplicate") {
+showToast("That book is already in your library.", "info")
+}
+return outcome
+}
+
+const handleAuthorSubmit = async (authorInput: Author) => {
+const normalizedName = authorInput.name.trim()
+if (normalizedName.length === 0) {
+throw new Error("Author name is required.")
+}
+const duplicate = authors.some((author) => author.name.toLowerCase() === normalizedName.toLowerCase())
+if (duplicate) {
+throw new Error(`${normalizedName} is already part of this library.`)
+}
+
+const nextAuthorId = authors.reduce((max, author) => (author.id && author.id > max ? author.id : max), 0) + 1
+const authorToStore: Author = {
+...authorInput,
+id: nextAuthorId,
+name: normalizedName,
+}
+setAuthors((prev) => [...prev, authorToStore])
+showToast(`Added ${authorToStore.name}.`)
+}
+
+const authorBookCount = useMemo(() => {
+const counts = new Map<number, number>()
+for (const book of books) {
+const authorIds = book.authorIds?.length ? book.authorIds : [book.authorId]
+for (const id of authorIds ?? []) {
+if (!id) {
+continue
+}
+counts.set(id, (counts.get(id) ?? 0) + 1)
+}
+}
+return counts
+}, [books])
+
+const availableCategories = useMemo(() => {
+	const categoryMap = new Map<string, string>()
+	for (const book of books) {
+		for (const category of book.categories ?? []) {
+			const trimmed = category.trim()
+			if (trimmed.length === 0) {
+				continue
 			}
-			try {
-				const snapshot = await libraryGateway.syncSnapshot()
-				applyGatewaySnapshot(snapshot)
-				if (announce) {
-					showStatus(`Library synced in ${snapshot.meta.latency}ms.`, "success")
-				}
-			} catch (error) {
-				console.error("Library sync failed", error)
-				showStatus("Reconnected using cached library data.", "info")
-			} finally {
-				hasLoadedRef.current = true
-				setIsLoading(false)
-				setIsSyncing(false)
+			const key = trimmed.toLowerCase()
+			if (!categoryMap.has(key)) {
+				categoryMap.set(key, trimmed)
 			}
-		},
-		[applyGatewaySnapshot, showStatus]
-	)
-
-	useEffect(() => {
-		libraryGateway.initialize()
-		void syncLibrary()
-	}, [syncLibrary])
-
-	useEffect(() => {
-		if (!status) {
-			return
 		}
-		const timeoutId = window.setTimeout(() => setStatus(null), 4000)
-		return () => window.clearTimeout(timeoutId)
-	}, [status])
-
-
-	const getAuthorById = useCallback(
-		(authorId: number) => authors.find((author) => author.id === authorId),
-		[authors]
-	)
-
-	const handleAuthorFormSuccess = (mode: "create" | "edit") => {
-		const baseMessage = mode === "edit" ? "Author profile updated." : "Author added to Library Cloud."
-		showStatus(baseMessage, "success")
-		setEditingAuthor(null)
-		setActiveTab("authors")
 	}
+	return Array.from(categoryMap.values()).sort((a, b) => a.localeCompare(b))
+}, [books])
 
-	const handleBookFormSuccess = (mode: "create" | "edit") => {
-		const baseMessage = mode === "edit" ? "Book details refreshed everywhere." : "Book added to Library Cloud."
-		showStatus(baseMessage, "success")
-		setEditingBook(null)
-		setActiveTab("books")
+useEffect(() => {
+	if (bookCategoryFilter !== "all" && !availableCategories.includes(bookCategoryFilter)) {
+		setBookCategoryFilter("all")
 	}
+}, [availableCategories, bookCategoryFilter])
 
-	const handleAddAuthor = async (author: Author) => {
-		const { id: _unused, ...payload } = author
-		const result = await libraryGateway.createAuthor(payload)
-		applyGatewaySnapshot(result)
-		showStatus(`Author saved to Library Cloud.`, "success")
+const matchesSearch = (value: string | null | undefined, search: string) =>
+value ? value.toLowerCase().includes(search) : false
+
+const handleTabChange = (tab: string) => {
+const safeTab = tab === "authors" ? "authors" : tab === "create" ? "create" : "books"
+setActiveTab(safeTab)
+}
+
+const filteredBooks = useMemo(() => {
+const search = normalizedSearch
+const modernCutoff = new Date().getFullYear() - 30
+
+return books
+.filter((book) => {
+if (search.length > 0) {
+const titleMatches = book.title.toLowerCase().includes(search)
+const authorMatches = book.authorNames?.some((name) => name.toLowerCase().includes(search))
+const descriptionMatches = matchesSearch(book.description, search)
+const categoriesMatch = book.categories?.some((category) => category.toLowerCase().includes(search))
+if (!titleMatches && !authorMatches && !descriptionMatches && !categoriesMatch) {
+return false
+}
+}
+
+if (bookYearFilter === "modern" && book.publishedYear && book.publishedYear < modernCutoff) {
+return false
+}
+
+if (bookYearFilter === "classic" && book.publishedYear && book.publishedYear >= modernCutoff) {
+return false
+}
+
+if (bookCategoryFilter !== "all") {
+	const targetCategory = bookCategoryFilter.toLowerCase()
+	const categories = book.categories?.map((category) => category.trim().toLowerCase()) ?? []
+	if (!categories.some((category) => category === targetCategory)) {
+		return false
 	}
+}
 
-	const handleAddBook = async (book: Book) => {
-		const { id: _unused, ...payload } = book
-		const result = await libraryGateway.createBook(payload)
-		applyGatewaySnapshot(result)
-		showStatus(`Book saved to Library Cloud.`, "success")
-	}
+return true
+})
+.sort((a, b) => {
+switch (bookSort) {
+case "title-asc":
+return a.title.localeCompare(b.title)
+case "title-desc":
+return b.title.localeCompare(a.title)
+case "year-new":
+return (b.publishedYear ?? 0) - (a.publishedYear ?? 0)
+case "year-old":
+return (a.publishedYear ?? 0) - (b.publishedYear ?? 0)
+case "recent":
+default: {
+const fallbackA = a.publishedYear || a.id || 0
+const fallbackB = b.publishedYear || b.id || 0
+return fallbackB - fallbackA
+}
+}
+})
+}, [bookCategoryFilter, books, bookSort, bookYearFilter, normalizedSearch])
 
-	const handleUpdateAuthor = async (author: Author) => {
-		const result = await libraryGateway.updateAuthor(author)
-		applyGatewaySnapshot(result)
-		showStatus(`Author profile updated across devices.`, "success")
-	}
+const filteredAuthors = useMemo(() => {
+const search = normalizedSearch
+return authors
+.filter((author) => {
+if (search.length === 0) {
+return true
+}
+return author.name.toLowerCase().includes(search) || matchesSearch(author.bio, search)
+})
+.sort((a, b) => {
+switch (authorSort) {
+case "books-desc":
+return (authorBookCount.get(b.id ?? 0) ?? 0) - (authorBookCount.get(a.id ?? 0) ?? 0)
+case "birth-new":
+return (b.birthYear ?? 0) - (a.birthYear ?? 0)
+case "birth-old":
+return (a.birthYear ?? 0) - (b.birthYear ?? 0)
+case "alphabetical":
+default:
+return a.name.localeCompare(b.name)
+}
+})
+}, [authorBookCount, authorSort, authors, normalizedSearch])
 
-	const handleUpdateBook = async (book: Book) => {
-		const result = await libraryGateway.updateBook(book)
-		applyGatewaySnapshot(result)
-		showStatus(`Updated "${book.title}".`, "success")
-	}
+const handlePreviewBook = (book: Book) => {
+setPreviewBook(book)
+}
 
-	const handleDeleteAuthor = async (author: Author) => {
-		const snapshot = await libraryGateway.deleteAuthor(author)
-		applyGatewaySnapshot(snapshot)
-		showStatus(`Removed "${author.name}" from Library Cloud.`, "success")
-		setEditingAuthor(null)
-	}
+return (
+<div className="min-h-screen bg-cream text-charcoal">
+{toast && (
+<div className="pointer-events-none fixed right-6 top-6 z-50 animate-fade-in">
+<div
+className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm shadow-soft ${
+toast.tone === "success"
+? "border-success-soft bg-success-soft text-success"
+: toast.tone === "warning"
+? "border-warning-soft bg-warning-soft text-warning"
+: "border-info-soft bg-info-soft text-info"
+}`}
+>
+{toast.tone === "success" ? (
+<CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+) : (
+<AlertCircle className="h-4 w-4" aria-hidden="true" />
+)}
+<span className="font-medium">{toast.message}</span>
+</div>
+</div>
+)}
 
-	const handleDeleteBook = async (book: Book) => {
-		const snapshot = await libraryGateway.deleteBook(book)
-		applyGatewaySnapshot(snapshot)
-		showStatus(`Removed "${book.title}" from Library Cloud.`, "success")
-		setEditingBook(null)
-	}
+<header className="relative border-b border-shadow-light">
+<div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-12">
+<div className="flex flex-wrap items-center justify-between gap-8">
+<div className="flex items-center gap-4">
+<span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-forest text-white shadow-soft">
+<BookOpen className="h-7 w-7" aria-hidden="true" />
+</span>
+<div className="space-y-2">
+<p className="text-xs font-semibold uppercase tracking-[0.3em] text-soft-gray">
+Curated collection
+</p>
+<h1 className="text-4xl font-semibold text-rich-black">Books & Authors Library</h1>
+<p className="max-w-xl text-sm text-soft-gray">
+The ultimate self-improvement reading list, carefully curated to inspire and educate.
+</p>
+</div>
+</div>
+<div className="flex flex-col items-end gap-2 text-right text-[0.75rem] text-soft-gray">
+<span className="font-semibold uppercase tracking-[0.3em] text-forest">
+Offline-first dataset
+</span>
+<span>
+Loaded from <code className="rounded bg-forest-soft px-1.5 py-0.5 text-forest">books_data.json</code>
+</span>
+</div>
+</div>
+</div>
+</header>
 
-	const beginEditAuthor = (author: Author) => {
-		setEditingAuthor({ ...author })
-		setActiveTab("add-author")
-	}
+<NavigationTabs
+activeTab={activeTab}
+onTabChange={handleTabChange}
+tabs={[
+	{ id: "books", label: "Books", count: books.length },
+	{ id: "authors", label: "Authors", count: authors.length },
+	{ id: "create", label: "Add", count: null },
+]}
+rightSlot={
+	<SearchBar
+		searchTerm={searchTerm}
+		onSearchChange={setSearchTerm}
+		className="md:min-w-[18rem] md:max-w-xs"
+	/>
+}
+/>
 
-	const beginEditBook = (book: Book) => {
-		setEditingBook({ ...book })
-		setActiveTab("add-book")
-	}
+<main className="mx-auto w-full max-w-6xl space-y-12 px-6 py-12">
+<StatsRibbon books={books} authors={authors} />
 
-	const handleResetLibrary = (seed: SeedSource) => {
-		void (async () => {
-			const snapshot = await libraryGateway.resetDemoData(seed)
-			applyGatewaySnapshot(snapshot)
-			setEditingAuthor(null)
-			setEditingBook(null)
-			setPreviewBook(null)
-			setActiveTab("books")
-			setBookAuthorFilter("all")
-			const seedLabel = seed === "server" ? "Server catalog" : "Demo library"
-			showStatus(`${seedLabel} restored and synced.`, "success")
-		})()
-	}
+{activeTab === "books" && (
+<>
+<BookToolbar
+sortOption={bookSort}
+onSortChange={setBookSort}
+yearFilter={bookYearFilter}
+onYearFilterChange={setBookYearFilter}
+categoryFilter={bookCategoryFilter}
+onCategoryFilterChange={setBookCategoryFilter}
+categoryOptions={availableCategories}
+actions={
+<button
+type="button"
+onClick={() => handleTabChange("create")}
+className="btn-secondary h-11 px-5"
+>
+Add book
+</button>
+}
+/>
 
-	const getBookCountByAuthor = useCallback(
-		(authorId?: number) => {
-			if (!authorId) {
-				return 0
-			}
-			return books.filter((book) => book.authorId === authorId).length
-		},
-		[books]
-	)
+{filteredBooks.length > 0 ? (
+<div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+{filteredBooks.map((book) => (
+<BookCard
+key={book.id ?? `${book.title}-${book.isbn}`}
+book={book}
+onPreview={handlePreviewBook}
+/>
+))}
+</div>
+) : (
+<div className="col-span-full rounded-2xl border border-shadow-muted bg-white px-10 py-14 text-center shadow-soft">
+<div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-forest-soft text-forest">
+<BookOpen className="h-8 w-8" aria-hidden="true" />
+</div>
+<h3 className="mb-2 text-2xl font-semibold text-rich-black">No books found</h3>
+<p className="mx-auto max-w-md text-sm text-soft-gray">
+Try a different search phrase or adjust the era filter to explore the full collection.
+</p>
+</div>
+)}
+</>
+)}
 
-	const normalizedSearch = searchTerm.toLowerCase()
+{activeTab === "authors" && (
+<>
+<AuthorToolbar
+sortOption={authorSort}
+onSortChange={setAuthorSort}
+actions={
+<button
+type="button"
+onClick={() => handleTabChange("create")}
+className="btn-secondary h-11 px-5"
+>
+Add author
+</button>
+}
+/>
 
-	const authorOptions = useMemo(
-		() =>
-			authors
-				.filter((author) => author.id != null)
-				.map((author) => ({ id: author.id!, name: author.name }))
-				.sort((a, b) => a.name.localeCompare(b.name)),
-		[authors]
-	)
+{filteredAuthors.length > 0 ? (
+<div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+{filteredAuthors.map((author) => (
+<AuthorCard
+key={author.id ?? author.name}
+author={author}
+bookCount={authorBookCount.get(author.id ?? 0) ?? 0}
+/>
+))}
+</div>
+) : (
+<div className="col-span-full rounded-2xl border border-shadow-muted bg-white px-10 py-14 text-center shadow-soft">
+<div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-forest-soft text-forest">
+<BookOpen className="h-8 w-8" aria-hidden="true" />
+</div>
+<h3 className="mb-2 text-2xl font-semibold text-rich-black">No authors found</h3>
+<p className="mx-auto max-w-md text-sm text-soft-gray">
+Refine your search to discover every writer represented in this dataset.
+</p>
+</div>
+)}
+</>
+)}
 
+{activeTab === "create" && (
+<section className="grid gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+<div className="space-y-8">
+<div className="surface-panel animate-float-in space-y-6 p-8">
+<header className="space-y-2">
+<p className="text-xs font-semibold uppercase tracking-[0.35em] text-soft-gray">
+Quick add
+</p>
+<h2 className="text-2xl font-semibold text-rich-black">Drop in an ISBN</h2>
+<p className="text-sm text-soft-gray">
+Let Google Books prefill the essentials, then refine the record before saving.
+</p>
+</header>
 
-	const filteredBooks = useMemo(() => {
-		const search = normalizedSearch.trim()
-		const modernCutoff = new Date().getFullYear() - 30
-		return books
-			.filter((book) => {
-				const author = getAuthorById(book.authorId)
-				const matchesSearch = search
-					? book.title.toLowerCase().includes(search) ||
-						(author?.name.toLowerCase().includes(search) ?? false)
-					: true
-				const matchesAuthor =
-					bookAuthorFilter === "all" || book.authorId === bookAuthorFilter
-				const matchesYear =
-					bookYearFilter === "all"
-						? true
-						: bookYearFilter === "modern"
-							? book.publishedYear >= modernCutoff
-							: book.publishedYear < modernCutoff
-				return matchesSearch && matchesAuthor && matchesYear
-			})
-			.sort((a, b) => {
-				switch (bookSort) {
-					case "title-asc":
-						return a.title.localeCompare(b.title)
-					case "title-desc":
-						return b.title.localeCompare(a.title)
-					case "year-new":
-						return (b.publishedYear ?? 0) - (a.publishedYear ?? 0)
-					case "year-old":
-						return (a.publishedYear ?? 0) - (b.publishedYear ?? 0)
-					case "recent":
-					default: {
-						const idA = a.id ?? 0
-						const idB = b.id ?? 0
-						return idB - idA
-					}
-				}
-			})
-	}, [books, bookAuthorFilter, bookSort, bookYearFilter, getAuthorById, normalizedSearch])
+<QuickIsbnAdd onResolve={handleQuickIsbnResolve} variant="embedded" className="w-full" />
+</div>
 
-	const filteredAuthors = useMemo(() => {
-		const search = normalizedSearch.trim()
-		return authors
-			.filter((author) => {
-				return search
-					? author.name.toLowerCase().includes(search) ||
-						author.bio?.toLowerCase().includes(search)
-					: true
-			})
-			.sort((a, b) => {
-				switch (authorSort) {
-					case "books-desc":
-						return getBookCountByAuthor(b.id) - getBookCountByAuthor(a.id)
-					case "birth-new":
-						return (b.birthYear ?? 0) - (a.birthYear ?? 0)
-					case "birth-old":
-						return (a.birthYear ?? 0) - (b.birthYear ?? 0)
-					case "alphabetical":
-					default:
-						return a.name.localeCompare(b.name)
-				}
-			})
-	}, [authors, authorSort, getBookCountByAuthor, normalizedSearch])
+<AddBookForm
+authors={authors}
+onSubmit={handleManualBookSubmit}
+className="max-w-none lg:mx-0"
+/>
+</div>
 
-	const handleTabSelect = (tab: string) => {
-		if (tab === "add-author") {
-			setEditingAuthor(null)
-		}
-		if (tab === "add-book") {
-			setEditingBook(null)
-		}
-		setActiveTab(tab)
-	}
+<AddAuthorForm
+onSubmit={handleAuthorSubmit}
+className="max-w-none lg:mx-0 lg:sticky lg:top-32"
+/>
+</section>
+)}
 
-	const isEditingAuthor = editingAuthor != null
-	const isEditingBook = editingBook != null
-	const statusBannerClass = status?.tone === "success"
-		? "border border-success-soft bg-success-soft text-success"
-		: "border border-info-soft bg-info-soft text-info"
-
-	const handleHighlightAuthor = (authorId: number) => {
-		setActiveTab("books")
-		setBookAuthorFilter(authorId)
-	}
-
-	const handlePreviewBook = (book: Book) => {
-		setPreviewBook(book)
-	}
-
-	const connectionProps: ConnectionState = {
-		status: isSyncing ? "syncing" : connection.status,
-		lastSynced: connection.lastSynced,
-		latency: connection.latency,
-		fallbackUsed: connection.fallbackUsed,
-	}
-
-	return (
-		<div className="min-h-screen bg-cream text-charcoal">
-			<header className="relative border-b border-shadow-light">
-				<div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-10">
-					<div className="flex flex-wrap items-center justify-between gap-6">
-						<div className="flex items-center gap-4">
-							<span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-forest text-white shadow-soft">
-								<BookOpen className="h-7 w-7" aria-hidden="true" />
-							</span>
-							<div className="space-y-1">
-								<p className="text-xs font-semibold uppercase tracking-[0.3em] text-soft-gray">
-									Your personal library
-								</p>
-								<h1 className="text-4xl font-semibold text-rich-black">Books & Authors Library</h1>
-								<p className="max-w-xl text-sm text-soft-gray">
-									Curate a calm, intelligent catalog of the stories and voices that inspire you.
-								</p>
-							</div>
-						</div>
-						<div className="flex flex-col items-end gap-4">
-							<ConnectionStatus connection={connectionProps} />
-							<div className="flex flex-wrap items-center justify-end gap-3">
-								<button
-									type="button"
-									onClick={() => {
-										void syncLibrary({ announce: true })
-									}}
-									disabled={isSyncing}
-									className="btn-ghost"
-								>
-									<RefreshCcw className="h-4 w-4" aria-hidden="true" />
-									Sync Library
-								</button>
-								<button
-									type="button"
-									onClick={() => handleResetLibrary("static")}
-									disabled={isSyncing}
-									className="btn-ghost"
-								>
-									<RotateCcw className="h-4 w-4" aria-hidden="true" />
-									Reset Demo Data
-								</button>
-								<button
-									type="button"
-									onClick={() => handleResetLibrary("server")}
-									disabled={isSyncing}
-									className="btn-secondary"
-									title="Load the full server catalog demo dataset"
-								>
-									<Server className="h-4 w-4" aria-hidden="true" />
-									Load Server Catalog
-								</button>
-							</div>
-							<span className="text-[0.7rem] font-semibold uppercase tracking-[0.3em] text-soft-gray">
-								Dataset · {seedSource === "server" ? "Server Catalog" : "Classic Mock"}
-							</span>
-						</div>
-					</div>
-					<SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
-				</div>
-			</header>
-
-			<NavigationTabs
-				activeTab={activeTab}
-				setActiveTab={handleTabSelect}
-				booksCount={filteredBooks.length}
-				authorsCount={filteredAuthors.length}
-			/>
-
-			<main className="mx-auto w-full max-w-6xl px-6 py-10">
-				{status && (
-					<div
-						className={`mb-6 flex items-center gap-3 rounded-xl px-5 py-4 text-sm font-medium shadow-soft ${statusBannerClass}`}
-					>
-						<span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/70">
-							<Library className="h-4 w-4" aria-hidden="true" />
-						</span>
-						{status.message}
-					</div>
-				)}
-
-				<StatsRibbon
-					books={books}
-					authors={authors}
-					lastSynced={connection.lastSynced}
-					isSyncing={isSyncing}
-				/>
-
-				{activeTab === "books" && (
-					<>
-						<BookToolbar
-							sortOption={bookSort}
-							onSortChange={setBookSort}
-							authorFilter={bookAuthorFilter}
-							onAuthorFilterChange={setBookAuthorFilter}
-							yearFilter={bookYearFilter}
-							onYearFilterChange={setBookYearFilter}
-							authors={authorOptions}
-							disabled={isSyncing}
-						/>
-						{isLoading ? (
-							<LibrarySkeleton variant="books" />
-						) : filteredBooks.length > 0 ? (
-							<div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-								{filteredBooks.map((book) => {
-									const author = getAuthorById(book.authorId)
-									if (!author) {
-										return null
-									}
-									return (
-										<BookCard
-											key={book.id ?? `${book.authorId}-${book.isbn}`}
-											book={book}
-											author={author}
-											onEdit={beginEditBook}
-											onDelete={handleDeleteBook}
-											onPreview={handlePreviewBook}
-										/>
-									)
-								})}
-							</div>
-						) : (
-							<div className="col-span-full rounded-2xl border border-shadow-muted bg-white px-10 py-14 text-center shadow-soft">
-								<div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-forest-soft text-forest">
-									<BookOpen className="h-8 w-8" aria-hidden="true" />
-								</div>
-								<h3 className="mb-2 text-2xl font-semibold text-rich-black">No books match yet</h3>
-								<p className="mx-auto max-w-md text-sm text-soft-gray">
-									Adjust the filters or add a fresh title to keep the shelves lively.
-								</p>
-								<div className="mt-6 flex justify-center">
-									<button
-										type="button"
-										onClick={() => setActiveTab("add-book")}
-										className="btn-primary"
-									>
-										Add a book
-									</button>
-								</div>
-							</div>
-						)}
-					</>
-				)}
-
-				{activeTab === "authors" && (
-					<>
-						<AuthorToolbar
-							sortOption={authorSort}
-							onSortChange={setAuthorSort}
-							disabled={isSyncing}
-						/>
-						{isLoading ? (
-							<LibrarySkeleton variant="authors" />
-						) : filteredAuthors.length > 0 ? (
-							<div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-								{filteredAuthors.map((author) => {
-									if (author.id == null) {
-										return null
-									}
-									return (
-										<AuthorCard
-											key={author.id}
-											author={author}
-											bookCount={getBookCountByAuthor(author.id)}
-											onEdit={beginEditAuthor}
-											onDelete={handleDeleteAuthor}
-											onHighlightBooks={handleHighlightAuthor}
-										/>
-									)
-								})}
-							</div>
-						) : (
-							<div className="col-span-full rounded-2xl border border-shadow-muted bg-white px-10 py-14 text-center shadow-soft">
-								<div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-forest-soft text-forest">
-									<BookOpen className="h-8 w-8" aria-hidden="true" />
-								</div>
-								<h3 className="mb-2 text-2xl font-semibold text-rich-black">No authors match yet</h3>
-								<p className="mx-auto max-w-md text-sm text-soft-gray">
-									Try another filter or invite a new voice into the library.
-								</p>
-								<div className="mt-6 flex justify-center">
-									<button
-										type="button"
-										onClick={() => setActiveTab("add-author")}
-										className="btn-primary"
-									>
-										Add an author
-									</button>
-								</div>
-							</div>
-						)}
-					</>
-				)}
-
-				{activeTab === "add-author" && (
-					<AddAuthorForm
-						mode={isEditingAuthor ? "edit" : "create"}
-						initialValues={editingAuthor ?? undefined}
-						onSubmit={isEditingAuthor ? handleUpdateAuthor : handleAddAuthor}
-						onCancel={() => {
-							setEditingAuthor(null)
-							setActiveTab("authors")
-						}}
-						onSuccess={() => handleAuthorFormSuccess(isEditingAuthor ? "edit" : "create")}
-					/>
-				)}
-
-				{activeTab === "add-book" && (
-					<AddBookForm
-						authors={authors}
-						mode={isEditingBook ? "edit" : "create"}
-						initialValues={editingBook ?? undefined}
-						onSubmit={isEditingBook ? handleUpdateBook : handleAddBook}
-						onCancel={() => {
-							setEditingBook(null)
-							setActiveTab("books")
-						}}
-						onSuccess={() => handleBookFormSuccess(isEditingBook ? "edit" : "create")}
-					/>
-				)}
-
-				<BookDetailsModal
-					book={previewBook}
-					author={previewBook ? getAuthorById(previewBook.authorId) ?? null : null}
-					onClose={() => setPreviewBook(null)}
-				/>
-			</main>
-		</div>
-	)
+<BookDetailsModal book={previewBook} onClose={() => setPreviewBook(null)} />
+</main>
+</div>
+)
 }
 
 export default App

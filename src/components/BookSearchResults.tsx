@@ -34,9 +34,9 @@ const BookSearchResults = ({
 	}
 
 	return (
-		<div className="relative">
-			<div className="mt-2 overflow-hidden rounded-2xl border border-sage-soft bg-white shadow-soft">
-				<div className="flex items-center justify-between border-b border-shadow-muted bg-cream-soft px-5 py-3">
+		<div className="relative animate-fade-in">
+			<div className="surface-panel mt-2 overflow-hidden">
+				<div className="flex items-center justify-between border-b border-shadow-muted px-5 py-3">
 					<h3 className="text-xs font-semibold uppercase tracking-[0.35em] text-soft-gray">
 						Google Books matches
 					</h3>
@@ -46,7 +46,7 @@ const BookSearchResults = ({
 				</div>
 
 				{isSearching ? (
-					<div className="px-5 py-6 text-sm text-soft-gray">Searching Google Books...</div>
+					<div className="px-5 py-6 text-sm text-soft-gray">Searching Google Books…</div>
 				) : searchResults.length === 0 ? (
 					<div className="px-5 py-6 text-sm text-soft-gray">No books found. Try a different title.</div>
 				) : (
@@ -95,14 +95,10 @@ const BookSearchResults = ({
 													)}
 												</span>
 												{matchFound ? (
-													<span className="tag-pill bg-success-soft text-success">
-													Author match
-												</span>
-											) : (
-													<span className="tag-pill bg-warning-soft text-warning">
-													Select author manually
-												</span>
-											)}
+													<span className="tag-pill bg-success-soft text-success">Author match</span>
+												) : (
+													<span className="tag-pill bg-warning-soft text-warning">Select author manually</span>
+												)}
 											</div>
 										</div>
 									</button>

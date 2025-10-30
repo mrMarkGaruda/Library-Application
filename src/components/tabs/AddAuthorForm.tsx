@@ -8,6 +8,7 @@ interface AddAuthorFormProps {
 	onSuccess?: () => void
 	initialValues?: Author
 	mode?: "create" | "edit"
+	className?: string
 }
 
 const AddAuthorForm = ({
@@ -16,6 +17,7 @@ const AddAuthorForm = ({
 	onSuccess,
 	initialValues,
 	mode = "create",
+	className,
 }: AddAuthorFormProps) => {
 	const [formData, setFormData] = useState<Author>(
 		initialValues ?? {
@@ -114,7 +116,9 @@ const AddAuthorForm = ({
 	const submitLabel = mode === "edit" ? "Save Changes" : "Add Author"
 
 	return (
-		<section className="mx-auto max-w-2xl rounded-3xl bg-white p-10 shadow-soft">
+		<section
+			className={`surface-panel mx-auto max-w-3xl animate-float-in p-10 ${className ?? ""}`}
+		>
 			<header className="mb-8 space-y-2">
 				<p className="text-xs font-semibold uppercase tracking-[0.35em] text-soft-gray">
 					Author profile

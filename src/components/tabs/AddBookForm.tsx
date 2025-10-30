@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import type { Author } from "../../types/Author"
 import type { Book } from "../../types/Book"
-import { searchBooksByTitle } from "../../services/googleBooksService"
+import { lookupBookByIsbn, searchBooksByTitle } from "../../services/googleBooksService"
 import BookSearchResults from "../BookSearchResults"
+import { Loader2, Wand2 } from "lucide-react"
 
 
 interface AddBookFormProps {
@@ -10,8 +11,9 @@ interface AddBookFormProps {
 	onSubmit: (book: Book) => Promise<void> | void
 	onCancel?: () => void
 	onSuccess?: () => void
-initialValues?: Book
-mode?: "create" | "edit"
+	initialValues?: Book
+	mode?: "create" | "edit"
+	className?: string
 }
 
 const defaultBookValues = (): Book => ({
@@ -21,6 +23,7 @@ const defaultBookValues = (): Book => ({
 	publishedYear: new Date().getFullYear(),
 	description: "",
 	coverUrl: "",
+	categories: [],
 })
 
 const AddBookForm = ({
@@ -30,6 +33,7 @@ const AddBookForm = ({
 	onSuccess,
 	initialValues,
 	mode = "create",
+	className,
 }: AddBookFormProps) => {
 	const [formData, setFormData] = useState<Book>(
 		initialValues ?? defaultBookValues()
@@ -40,8 +44,10 @@ const AddBookForm = ({
 	const [searchResults, setSearchResults] = useState<Book[]>([])
 	const [isSearching, setIsSearching] = useState(false)
 	const [isbnNotFound, setIsbnNotFound] = useState(false)
+	const [isIsbnLookupLoading, setIsIsbnLookupLoading] = useState(false)
+	const [isbnLookupMessage, setIsbnLookupMessage] = useState<string | null>(null)
 	const searchRequestIdRef = useRef(0)
-const skipInitialSearchRef = useRef(mode === "edit")
+	const skipInitialSearchRef = useRef(mode === "edit")
 
 	useEffect(() => {
 		if (initialValues) {
@@ -71,6 +77,82 @@ const skipInitialSearchRef = useRef(mode === "edit")
 
 		if (name === "isbn") {
 			setIsbnNotFound(false)
+			setIsbnLookupMessage(null)
+		}
+	}
+
+	const applyBookDetails = (book: Book) => {
+		const sanitizedCoverUrl = book.coverUrl.startsWith("http://")
+			? book.coverUrl.replace("http://", "https://")
+			: book.coverUrl
+
+		const yearFromBook = book.publishedDate
+			? Number.parseInt(book.publishedDate.substring(0, 4), 10)
+			: Number.NaN
+
+		const matchedAuthor = book.author
+			? authors.find(
+					(author) => author.name.toLowerCase() === book.author?.toLowerCase()
+			  )
+			: undefined
+
+		setFormData((prev) => ({
+			...prev,
+			title: book.title || prev.title,
+			description: book.description || prev.description,
+			coverUrl: sanitizedCoverUrl || prev.coverUrl,
+			publishedYear: Number.isFinite(yearFromBook) ? yearFromBook : prev.publishedYear,
+			isbn: book.isbn || prev.isbn,
+			authorId: matchedAuthor?.id ?? prev.authorId,
+			categories: book.categories ?? prev.categories,
+			previewLink: book.previewLink ?? prev.previewLink,
+			infoLink: book.infoLink ?? prev.infoLink,
+		}))
+
+		setErrors((prev) => {
+			const next = { ...prev }
+			if (book.isbn) {
+				delete next.isbn
+			}
+			if (matchedAuthor?.id) {
+				delete next.authorId
+			}
+			return next
+		})
+
+		if (!matchedAuthor && book.author) {
+			setErrors((prev) => ({
+				...prev,
+				authorId: "No matching author found locally. Please select one.",
+			}))
+		}
+	}
+
+	const handleLookupByIsbn = async () => {
+		if (!formData.isbn.trim()) {
+			setErrors((prev) => ({ ...prev, isbn: "Enter an ISBN to look up details" }))
+			return
+		}
+
+		setIsIsbnLookupLoading(true)
+		setIsbnLookupMessage(null)
+
+		try {
+			const book = await lookupBookByIsbn(formData.isbn)
+			if (!book) {
+				setIsbnLookupMessage("Could not locate this ISBN. You can still fill the fields manually.")
+				setIsbnNotFound(true)
+				return
+			}
+
+			applyBookDetails(book)
+			setIsbnLookupMessage("We pulled in details from Google Books. Review and adjust any fields below.")
+			setIsbnNotFound(false)
+		} catch (error) {
+			console.error("Unable to fetch details by ISBN", error)
+			setIsbnLookupMessage("Something went wrong while fetching data for this ISBN.")
+		} finally {
+			setIsIsbnLookupLoading(false)
 		}
 	}
 
@@ -119,48 +201,7 @@ const skipInitialSearchRef = useRef(mode === "edit")
 	}, [formData.title])
 
 	const handleSelectGoogleBook = (book: Book) => {
-		const sanitizedCoverUrl = book.coverUrl.startsWith("http://")
-			? book.coverUrl.replace("http://", "https://")
-			: book.coverUrl
-
-		const yearFromBook = book.publishedDate
-			? Number.parseInt(book.publishedDate.substring(0, 4), 10)
-			: Number.NaN
-
-		const matchedAuthor = book.author
-			? authors.find(
-					(author) => author.name.toLowerCase() === book.author?.toLowerCase()
-				)
-			: undefined
-
-		setFormData((prev) => ({
-			...prev,
-			title: book.title || prev.title,
-			description: book.description || prev.description,
-			coverUrl: sanitizedCoverUrl || prev.coverUrl,
-			publishedYear: Number.isFinite(yearFromBook) ? yearFromBook : prev.publishedYear,
-			isbn: book.isbn || prev.isbn,
-			authorId: matchedAuthor?.id ?? prev.authorId,
-		}))
-
-		setErrors((prev) => {
-			const next = { ...prev }
-			if (book.isbn) {
-				delete next.isbn
-			}
-			if (matchedAuthor?.id) {
-				delete next.authorId
-			}
-			return next
-		})
-
-		if (!matchedAuthor && book.author) {
-			setErrors((prev) => ({
-				...prev,
-				authorId: "No matching author found locally. Please select one.",
-			}))
-		}
-
+		applyBookDetails(book)
 		setSearchResults([])
 		setIsbnNotFound(!book.isbn)
 	}
@@ -245,7 +286,9 @@ const skipInitialSearchRef = useRef(mode === "edit")
 	const submitLabel = mode === "edit" ? "Save Changes" : "Add Book"
 
 	return (
-		<section className="mx-auto max-w-2xl rounded-3xl bg-white p-10 shadow-soft">
+		<section
+			className={`surface-panel mx-auto max-w-3xl animate-float-in p-10 ${className ?? ""}`}
+		>
 			<header className="mb-8 space-y-2">
 				<p className="text-xs font-semibold uppercase tracking-[0.35em] text-soft-gray">
 					Book details
@@ -320,19 +363,41 @@ const skipInitialSearchRef = useRef(mode === "edit")
 				<div className="grid grid-cols-1 gap-6 md:grid-cols-2">
 					{/* ISBN Input */}
 					<div>
-						<label htmlFor="isbn" className="input-label">
-							ISBN *
-						</label>
-						<input
-							type="text"
-							id="isbn"
-							name="isbn"
-							value={formData.isbn}
-							onChange={handleChange}
-							className="form-field"
-							aria-invalid={errors.isbn ? "true" : "false"}
-							placeholder="e.g., 978-0-123456-78-9"
-						/>
+						<div className="flex items-end gap-2">
+							<div className="flex-1">
+								<label htmlFor="isbn" className="input-label">
+									ISBN *
+								</label>
+								<input
+									type="text"
+									id="isbn"
+									name="isbn"
+									value={formData.isbn}
+									onChange={handleChange}
+									className="form-field"
+									aria-invalid={errors.isbn ? "true" : "false"}
+									placeholder="e.g., 9780061120084"
+								/>
+							</div>
+							<button
+								type="button"
+								onClick={handleLookupByIsbn}
+								className="btn-secondary h-11 whitespace-nowrap"
+								disabled={isIsbnLookupLoading}
+							>
+								{isIsbnLookupLoading ? (
+									<>
+										<Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+										<span>Fetching…</span>
+									</>
+								) : (
+									<>
+										<Wand2 className="h-4 w-4" aria-hidden="true" />
+										<span>Fill from ISBN</span>
+									</>
+								)}
+							</button>
+						</div>
 						{errors.isbn && (
 							<p className="mt-2 text-xs font-medium text-error">{errors.isbn}</p>
 						)}
@@ -340,6 +405,9 @@ const skipInitialSearchRef = useRef(mode === "edit")
 							<p className="mt-2 text-xs font-medium text-warning">
 								The selected Google Books result did not include an ISBN. Provide one manually before saving.
 							</p>
+						)}
+						{isbnLookupMessage && (
+							<p className="mt-2 text-xs font-medium text-soft-gray">{isbnLookupMessage}</p>
 						)}
 					</div>
 
